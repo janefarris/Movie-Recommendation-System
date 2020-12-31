@@ -1,0 +1,719 @@
+---
+title: "What Is The Happiest Country In The World?"
+author: "Jane Farris"
+date: "12/01/2020"
+output: pdf_document
+toc: true
+---
+
+```{r,setup,include=FALSE}
+if(!require(tidyverse)) install.packages("tidyverse",repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret",repos = "http://cran.us.r-project.org")
+if(!require(dplyr)) install.packages("dplyr",repos = "http://cran.us.r-project.org")
+if(!require(ggplot2)) install.packages("ggplot2",repos = "http://cran.us.r-project.org")
+if(!require(readxl)) install.packages("readxl",repos = "http://cran.us.r-project.org")
+if(!require(rpart)) install.packages("rpart",repos = "http://cran.us.r-project.org")
+if(!require(rpart.plot)) install.packages("rpart.plot",repos = "http://cran.us.r-project.org")
+if(!require(kableExtra)) install.packages("kableExtra",repos = "http://cran.us.r-project.org")
+if(!require(knitr)) install.packages("knitr",repos = "http://cran.us.r-project.org")
+if(!require(rworldmap)) install.packages("rworldmap",repos = "http://cran.us.r-project.org")
+
+library(readxl) # for interpreting excel data
+library(tidyverse) # for tidying the data
+library(caret) # for training regression models
+library(dplyr) # data wrangling
+library(rpart)       # performing regression trees
+library(rpart.plot)  # plotting regression trees
+library(ggplot2) # data visualization
+library(kableExtra) # for table formatting
+library(knitr) # for report generating
+library(rworldmap) # for glabal mapping
+```
+
+```{r,include=FALSE,warning=FALSE}
+#Suppress summarise info
+options(dplyr.summarise.inform = FALSE)
+options(tidyverse.quiet = TRUE)
+
+#Set the baseline size for figures in the report
+knitr::opts_chunk$set(fig.align = 'center') 
+```
+\newpage
+#Overview
+
+This project is part of the HarvardX Professional Certificate in Data Science capstone course. It consists of three files: a report in the form of an Rmd file, a report in the form of a PDF document (knit from the Rmd file), and the R script that generates the predicted movie ratings. This report contains the objective, data cleaning, exploratory analysis, data visualization, modeling, results and concluding remarks of the project. The dataset generated in this report is available on the official World Happiness Report website as an xls file. 
+
+#Introduction
+
+The World Happiness Report is a well recognized survey of the state of global happiness developed using the data from the Gallup World Poll (GWP). The report ranks countries by their happiness scores based on answers to the main life evaluation question asked in the poll, "How would you rate your happiness on a scale of 0 to 10 where 10 is the happiest". The first World Happiness Report was published in 2012 and has since continued to gain global recognition among governments and organizations as happiness indicators are used to establish policy making decisions. In fact, many professionals across various disciplines argue that the well-being or overall happiness of a country can be used as a measurement to assess the progress of a nation. This project analyzes the data from the 14 year period 2005-2018, including the variations in happiness between different countries, regions and years. 
+
+#Objective
+
+The aim of this project is to predict the subjective well-being or happiness score of a given country (ranging from 0 to 10), using the World Happiness Report data from 2005-2018. Analysis of various social, economic and political data points is carried out in order to explore their relationship to a countries overall well-being. 
+
+Additionally, we want to learn which countries or regions rank the highest in overall happiness and in each of the factors contributing to happiness such as GDP, healthy life expectancy, government corruption, social support, freedom and generosity. Finally we want to examine country scores and rankings over the 14 year period to see any major trends and changes. 
+
+This report contains 4 models developed to predict the happiness score of a given country, using 4 different machine learning techniques. Multivariate linear regression, decision (regression) trees, random forests and k-nearest neighbors analysis, using the original variables from the World Happiness Report were applied. The accuracy of each machine learning technique will be evaluated using Root Mean Square Error (RMSE) in order to see how far off the model predictions are from the observed country happiness scores reported in 2005-2018. The RMSE formula is defined as follows: 
+
+$$RMSE = \sqrt{\frac{1}{N}\displaystyle\sum_{i} (\hat{y}_{i}-y_{i})^{2}}$$
+
+\newpage
+#The Dataset
+
+The World Happiness Report of 2019, which includes data from 2005-2018 can be found and downloaded at: https://worldhappiness.report/ed/2019/. 
+
+```{r, data-cleaning, warning=FALSE,include=FALSE}
+#Set the working directory
+setwd("/Users/janefarris/Documents/Academics/Harvard/World Happiness Project/")
+#Load the data from the world happiness report 2019
+happiness_data <- read_xls('./World-Happiness-Report-Data.xls')
+
+#Select the columns (variables) we are going to analyze
+happiness_data <- happiness_data %>% select(1:11)
+
+#Rename the columns to something more readable 
+happiness_data <- happiness_data %>% rename(Country="Country name",
+                                            Score="Life Ladder",
+                                            Log.GDP="Log GDP per capita",
+                                            Social.support="Social support",
+                                            Healthy.life.expectancy="Healthy life expectancy at birth",
+                                            Perceptions.of.corruption="Perceptions of corruption",
+                                            Freedom="Freedom to make life choices",
+                                            Positive.affect="Positive affect",
+                                            Negative.affect="Negative affect")
+
+#Add a column for the region of each country
+happiness_data <- happiness_data %>% mutate(Region = NA)
+happiness_data <- happiness_data %>% mutate(Region = 
+                                    ifelse(Country %in% c("Finland","Norway","Denmark","Iceland",
+                                                          "Switzerland","Netherlands","Sweden","United Kingdom",
+                                                          "Austria","Ireland","Germany","Belgium","Luxembourg",
+                                                          "Malta","France","Spain","Italy","Northern Cyprus",
+                                                          "Cyprus","Portugal","Greece","North Cyprus"), "Western Europe",Region),
+                                  Region =
+                                    ifelse(Country %in% c("Canada","United States","Mexico"), "North America",Region),
+                                  Region =
+                                    ifelse(Country %in% c("New Zealand","Australia"),"Australia and New Zealand",Region),
+                                  Region =
+                                    ifelse(Country %in% c("Costa Rica","Chile","Panama","Brazil","Argentina",
+                                                          "Guatemala","Uruguay","Colombia","Trinidad & Tobago",
+                                                          "El Salvador","Nicaragua","Ecuador","Belize","Jamaica",
+                                                          "Bolivia","Paraguay","Peru","Dominican Republic",
+                                                          "Venezuela","Suriname","Honduras","Haiti","Puerto Rico",
+                                                          "Trinidad and Tobago","Cuba","Guyana"),
+                                           "Latin America and Caribbean",Region),
+                                  Region =
+                                    ifelse(Country %in% c("Czech Republic","Slovakia","Poland","Uzbekistan",
+                                                          "Lithuania","Slovenia","Romania","Latvia","Russia",
+                                                          "Kazakhstan","Estonia","Kosovo","Moldova","Turkmenistan",
+                                                          "Hungary","Serbia","Croatia","Montenegro","Azerbaijan",
+                                                          "Belarus","Kyrgyzstan","Macedonia","Albania",
+                                                          "Bosnia and Herzegovina","Tajikistan","Ukraine",
+                                                          "Armenia","Georgia","Bulgaria"),
+                                           "Central and Eastern Europe",Region),
+                                  Region =
+                                    ifelse(Country %in% c("Mauritius","Nigeria","Zambia","Somaliland region",
+                                                          "Mozambique","Lesotho","Swaziland","South Africa",
+                                                          "Ghana","Zimbabwe","Liberia","Sudan","Congo (Kinshasa)",
+                                                          "Ethiopia","Sierra Leone","Mauritania","Kenya",
+                                                          "Djibouti","Botswana","Malawi","Cameroon","Angola",
+                                                          "Mali","Congo (Brazzaville)","Comoros","Uganda",
+                                                          "Senegal","Gabon","Niger","Tanzania","Madagascar",
+                                                          "Central African Republic","Chad","Guinea",
+                                                          "Ivory Coast","Burkina Faso","Rwanda","Benin","Somalia",
+                                                          "Namibia","South Sudan","Gambia"),"Sub-Saharan Africa",Region),
+                                  Region =
+                                    ifelse(Country %in% c("Israel","United Arab Emirates","Qatar","Saudi Arabia",
+                                                          "Bahrain","Kuwait","Libya","Turkey","Lebanon","Algeria",
+                                                          "Morocco","Oman","Jordan","Tunisia",
+                                                          "Palestinian Territories","Iran","Iraq","Egypt",
+                                                          "Yemen","Syria","Burundi","Togo"),
+                                           "Middle East and Northern Africa",Region),
+                                  Region =
+                                    ifelse(Country %in% c("Singapore","Malaysia","Thailand","Philippines",
+                                                          "Indonesia","Vietnam","Laos","Myanmar","Cambodia"),
+                                           "Southeastern Asia",Region),
+                                  Region =
+                                    ifelse(Country %in% c("Pakistan","Bhutan","Bangladesh","India","Nepal",
+                                                          "Sri Lanka","Afghanistan"),"Southern Asia",Region),
+                                  Region =
+                                    ifelse(Country %in% c("Taiwan","Japan","South Korea","Hong Kong",
+                                                          "China","Mongolia","Hong Kong S.A.R.", "Hong Kong S.A.R. of China","China",
+                                                          "Taiwan Province of China"),
+                                           "Eastern Asia",Region))
+
+#Check to make sure every country is categorized in a region
+sum(is.na(happiness_data$Region))
+```
+
+The final dataset containing the years 2005-2018 of World Happiness Report data contains 1704 rows each corresponding to countries around the world and the following 12 columns:
+
+**Country**: Name of the country.    
+
+**Region**: Region the country belongs to.  
+
+**Score**: The happiness score of a country; a metric measured by asking the sampled people the question: "How would you rate your happiness on a scale of 0 to 10 where 10 is the happiest". The national average of the response to the question.   
+
+**Log.GDP**: the logarithm of a country's GDP per capita in the respective year.  
+
+**Social.support**: the national average of the binary responses (either 0 or 1) to the GWP question “If you
+were in trouble, do you have relatives or friends you can count on to help you whenever you need them, or not?”; having someone to count on in times of trouble.  
+
+**Healthy.life.expectancy**: the average number of years a person can expect to live in full health, without disabling illnesses or injuries. Based on data reported from the World Health Orga- nization (WHO).  
+
+**Freedom**: the national average of responses to the GWP question “Are you satisfied or dissatisfied with your freedom to choose what you do with your life?”.  
+
+**Perceptions.of.corruption**: the national average of the survey responses to two questions in the GWP: “Is corruption widespread throughout the government or not” and “Is corruption widespread within businesses or not?”; the overall perception is just the average of the two binary responses.  
+
+**Generosity**: the national average of response to the GWP question “Have you donated money to a charity in the past month?” on GDP
+per capita.  
+
+**Year**: The year the World Happiness Report data was published.  
+
+**Positive.affect**: the average of three positive affect measures in GWP: happiness, laugh and enjoyment.  
+
+**Negative.affect**: the average of three negative affect measures in GWP: worry, sadness and anger.  
+
+\newpage
+#Methods & Analysis
+
+This section of the report contains the data exploration, visualization and modeling techniques used.
+
+##Data Exploration
+
+First the data was manipulated and summarized in order to initially analyze its characteristics and prepare it for testing and model building. We can see  we have 1704 observations of 12 variables. Each row represents a country's overall happiness score in a given year (ranging from 2005 to 2018) and includes other variables corresponding to different economic, political and social topics. There are 165 different countries represented in our dataset, each categorized into one of 10 different regions: Southern Asia, Eastern Asia, Southeastern Asia, Central and Eastern Europe, Western Europe, Middle East and North Africa, Sub-Saharan Africa, Latin America and Caribbean, North America and Australia and New Zealand. 
+
+
+
+```{r data-summary, warning=FALSE}
+#Dataset size
+dim(happiness_data)
+
+#How many countries are in our dataset
+length(unique(happiness_data$Country))
+#How many regions are in our dataset
+length(unique(happiness_data$Region))
+
+#Range of world happiness reports
+min(happiness_data$Year)
+max(happiness_data$Year)
+```
+
+\newpage
+###Average World Happiness
+
+We can calculate the average overall world happiness between 2005-2018 to see if there are any major trends. We can see that 2005 had the highest overall well-being score by a lot, while between 2006-2018 the score decreased and fluctuated around 5.4. This could be caused by many different world events/trends such as the rise of social media, climate change, oil prices, election results and so on. It is virtually impossible to conclude the exact source of the decline in overall world happiness, thus we can only speculate based on world events. 
+
+```{r, world-average-happiness, warning=FALSE,echo=FALSE,fig.align = 'center'}
+#Average happiness score in each of the 14 years
+happiness_data %>% group_by(Year) %>% summarise("Average Happiness Score" = mean(Score)) %>% knitr::kable() %>%
+  kable_styling(position="center")
+```
+
+###Distribution of Countries in Each Region
+
+Next, we can further explore the breakdown of countries and regions included in our dataset. We can see that we have 10 different regions, each representing a different amount of countries. For instance, Sub-Saharan Africa and Central/Eastern Europe contain the most amount of countries with 42 and 29 respectively. Conversely, the region Australia and New Zealand only contains 2 countries (Australia and New Zealand). 
+
+```{r,region-distribution, warning=FALSE,echo=FALSE,fig.width=8, fig.height=4,fig.align='center'}
+#Unique country data
+unique_happiness <- happiness_data %>% group_by(Region,Country) %>% summarise(count=n())
+
+#Disribution of Regions
+unique_happiness %>% 
+  select(Region, Country) %>%
+  group_by(Region) %>% 
+  summarise(count=n()) %>% 
+  ggplot(aes(reorder(Region, count),count)) +
+  geom_bar(stat="identity",color="dark grey",fill="sky blue") +
+  coord_flip(y=c(0, 45)) +
+  geom_text(aes(label= count),hjust=-0.2, size=2) +
+  labs(x="Region",y="Count",title="Distribution of Countries in Each Region") +
+  theme_minimal()
+```
+
+###Happiest Countries
+
+Below is a list of the top 10 happiest countries in each year from 2005 to 2018. We can see there is a lot of similarity between the lists over the years, with countries like Denmark, Finland, Netherlands, Norway, Canada, Australia etc. represented in almost every year. In fact, Denmark and Finland both hold the top spot quite frequently, with Denmark being the happiest country 7 times and Finland 4 times in the 14 year period. Further, it's important to note that most of the countries that made the list are from the Western European region and no country from Sub-Saharan Africa is represented. This is interesting because the Sub-Saharan African region contains the most amount of countries by a lot, yet none of the have made the top happiest countries list in the 14 year period.
+
+```{r,happiest, warning=FALSE,echo=FALSE}
+#Happiest Countries in each of the years in the 14 year period
+Happiest_2005 <- happiness_data %>% filter(Year==2005) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2006 <- happiness_data %>% filter(Year==2006) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2007 <- happiness_data %>% filter(Year==2007) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2008 <- happiness_data %>% filter(Year==2008) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2009 <- happiness_data %>% filter(Year==2009) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2010 <- happiness_data %>% filter(Year==2010) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2011 <- happiness_data %>% filter(Year==2011) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2012 <- happiness_data %>% filter(Year==2012) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2013 <- happiness_data %>% filter(Year==2013) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2014 <- happiness_data %>% filter(Year==2014) %>% arrange(desc(Score)) %>% select(Country)
+Happiest_2015 <- happiness_data %>% filter(Year==2015) %>% arrange(desc(Score)) %>% select(Country) 
+Happiest_2016 <- happiness_data %>% filter(Year==2016) %>% arrange(desc(Score)) %>% select(Country) 
+Happiest_2017 <- happiness_data %>% filter(Year==2017) %>% arrange(desc(Score)) %>% select(Country) 
+Happiest_2018 <- happiness_data %>% filter(Year==2018) %>% arrange(desc(Score)) %>% select(Country) 
+
+tab1 <- cbind(1:10,Happiest_2005[1:10,],Happiest_2006[1:10,],Happiest_2007[1:10,],Happiest_2008[1:10,],
+              Happiest_2009[1:10,],Happiest_2010[1:10,],Happiest_2011[1:10,]) %>%
+  knitr::kable(col.names = c("Rank","2005","2006","2007","2008","2009","2010","2011")) %>%
+  kable_styling(font_size=7)
+tab2 <- cbind(Happiest_2012[1:10,],Happiest_2013[1:10,],Happiest_2014[1:10,],Happiest_2015[1:10,],
+              Happiest_2016[1:10,],Happiest_2017[1:10,],Happiest_2018[1:10,]) %>%
+  knitr::kable(col.names = c("2012","2013","2014","2015","2016","2017","2018")) %>% kable_styling(font_size=7)
+tab1
+tab2
+```
+
+###Least Happy Countries
+
+Below is a list of the 10 least happy countries in each year from 2005 to 2018. We can see that similar to the top 10 happiest countries table, there is a lot of repetition of countries over the years. However, now there a very few countries from the Western Europe region. Instead, most of the countries over the years belong to the Sub-Saharan Africa, Southern Asia or Middle East and Northern Africa regions. This is likely due to the political climate, poverty and limited access to medical care, education and resources of most of the countries in these regions.
+
+```{r,least-happy, warning=FALSE,echo=FALSE}
+#Least Happy Countries in each of the years in the 14 year period
+Bottom_2005 <- happiness_data %>% filter(Year==2005) %>% arrange(Score) %>% select(Country)
+Bottom_2006 <- happiness_data %>% filter(Year==2006) %>% arrange(Score) %>% select(Country)
+Bottom_2007 <- happiness_data %>% filter(Year==2007) %>% arrange(Score) %>% select(Country)
+Bottom_2008 <- happiness_data %>% filter(Year==2008) %>% arrange(Score) %>% select(Country)
+Bottom_2009 <- happiness_data %>% filter(Year==2009) %>% arrange(Score) %>% select(Country)
+Bottom_2010 <- happiness_data %>% filter(Year==2010) %>% arrange(Score) %>% select(Country)
+Bottom_2011 <- happiness_data %>% filter(Year==2011) %>% arrange(Score) %>% select(Country)
+Bottom_2012 <- happiness_data %>% filter(Year==2012) %>% arrange(Score) %>% select(Country)
+Bottom_2013 <- happiness_data %>% filter(Year==2013) %>% arrange(Score) %>% select(Country)
+Bottom_2014 <- happiness_data %>% filter(Year==2014) %>% arrange(Score) %>% select(Country)
+Bottom_2015 <- happiness_data %>% filter(Year==2015) %>% arrange(Score) %>% select(Country)
+Bottom_2016 <- happiness_data %>% filter(Year==2016) %>% arrange(Score) %>% select(Country)
+Bottom_2017 <- happiness_data %>% filter(Year==2017) %>% arrange(Score) %>% select(Country)
+Bottom_2018 <- happiness_data %>% filter(Year==2018) %>% arrange(Score) %>% select(Country)
+
+tab3 <- cbind(1:10,Bottom_2005[1:10,],Bottom_2006[1:10,],Bottom_2007[1:10,],Bottom_2008[1:10,],
+              Bottom_2009[1:10,],Bottom_2010[1:10,],Bottom_2011[1:10,]) %>%
+  knitr::kable(col.names = c("Rank","2005","2006","2007","2008","2009","2010","2011")) %>%
+  kable_styling(font_size=5.5)
+tab4 <- cbind(Bottom_2012[1:10,],Bottom_2013[1:10,],Bottom_2014[1:10,],Bottom_2015[1:10,],Bottom_2016[1:10,],
+      Bottom_2017[1:10,],Bottom_2018[1:10,]) %>%
+  knitr::kable(col.names = c("2012","2013","2014","2015","2016","2017","2018")) %>% kable_styling(font_size=7)
+tab3
+tab4
+```
+
+##Data Visualiztion
+
+###Happiness By Region
+
+Intuitively we know that certain regions will tend to have more overall happiness than others. We can see that the regions Australia and New Zealand, North America, Western Europe, Latin America and the Carribean and Eastern Asia all have happiness scores higher than the global average of 5.437. Again we see that countries belonging to Southern Asia and Sub-Saharan Africa have a significantly lower average happiness score in comparison to the rest of the world.
+
+```{r,happiness-region, warning=FALSE,echo=FALSE,fig.width=8, fig.height=4}
+#Average happiness score across the world between 2005-2018
+avg_score <- mean(happiness_data$Score)
+
+#Average Happiness Score By Region
+happiness_data %>%
+  group_by(Region) %>%
+  summarise(Average_Score = mean(Score)) %>%
+  ggplot(aes(reorder(Region,Average_Score),Average_Score)) +
+  geom_bar(stat="identity",color="dark grey",fill="sky blue") +
+  coord_flip(y=c(0, 8)) +
+  geom_text(aes(label= round(Average_Score,3)),hjust=-0.1, size=3) +
+  labs(x="Region",y="Average Score",title="Average Happiness Score By Region") +
+  theme_minimal()
+```
+
+We can also explore the average happiness of each of the regions between 2005-2018 to see if there were any major changes. From the graph below we can see that Australia and New Zealand had the highest average scores for 12 of the 14 years, with North America taking the top spot in those 2 years. Conversely, Southern Asia and Sub-Saharan Africa continuously have the lowest average scores during the entire 14 year period. Central and Eastern European countries had a steady incline in average happiness between 2010 and 2018, after a sharp decline in 2006. Countries in Southeastern Asia, Eastern Asia, Middle East and North African and Latin American and the Caribbean regions on the other hand had a significant amount of fluctuation over the 14 years, however they all remained in the middle of the pack.
+
+```{r,happiness-by-year, warning=FALSE,echo=FALSE,fig.width=10, fig.height=5}
+#Find the average score across the world in each of the 14 years segmented by region
+scores_2005 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2005) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2005)
+scores_2006 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2006) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2006)
+scores_2007 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2007) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2007)
+scores_2008 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2008) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2008)
+scores_2009 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2009) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2009)
+scores_2010 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2010) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2010)
+scores_2011 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2011) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2011)
+scores_2012 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2012) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2012)
+scores_2013 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2013) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2013)
+scores_2014 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2014) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2014)
+scores_2015 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2015) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2015)
+scores_2016 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2016) %>%
+  summarise(Average_Score=mean(Score)) %>% 
+  mutate(Year=2016)
+scores_2017 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2017) %>%
+  summarise(Average_Score=mean(Score)) %>% 
+  mutate(Year=2017)
+scores_2018 <- happiness_data %>% 
+  group_by(Region) %>% 
+  filter(Year==2018) %>%
+  summarise(Average_Score=mean(Score)) %>%
+  mutate(Year=2018)
+
+tab <- rbind(scores_2005,scores_2006,scores_2007,scores_2008,scores_2009,scores_2010,scores_2011,scores_2012,scores_2013,scores_2014,scores_2015,scores_2016,scores_2017,scores_2018)
+tab %>%
+  group_by(Year) %>%
+  ggplot(aes(Year, Average_Score,color=Region)) +
+  geom_line(stat="identity") +
+  geom_point() +
+  labs(x="Year of Report",y="Happiness Score",title="Happiness Scores from 2005-2018") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+###Happiness Across the Globe
+
+Below we can more clearly see the average happiness scores globally in 2018, which range from 2-8. This map supports the findings above that certain regions (such as Australia and New Zealand, North America and Western Europe) tend to have countries with higher overall happiness. Countries that are not included in our dataset are colored in light grey.    
+
+
+
+
+
+```{r, happiness_by_country,echo=FALSE, warning=FALSE,message=FALSE,comment=FALSE,results='hide',fig.keep='all'}
+#Create a country Map
+#Create a subset of our data to include only 2018 scores
+data2018 <- happiness_data %>% filter(Year==2018)
+myCountries <- unique(data2018$Country)
+
+#data frame with the country names plus the score variavle to merge with the map data
+DF <- data.frame(country = myCountries,Score = data2018$Score)
+
+Map <- joinCountryData2Map(DF, joinCode = "NAME",nameJoinColumn = "country")
+#Join malDF data frame to the country map data to plot
+
+mapCountryData(Map, nameColumnToPlot="Score", catMethod = c(2:8),
+  missingCountryCol = gray(.8), mapTitle = "Happiness Score Across the World in 2018",
+  colourPalette = c("yellow","orange","red"),addLegend = TRUE)
+```
+
+
+\newpage
+In order to build the most accurate model in predicting a country's happiness score, we must explore the relationship between our dependent variable and the features in our dataset. The following graphs examine each of the relationships:
+
+###GDP vs. Happiness
+
+First of all, we know intuitively that the GDP of a nation, the total monetary value of all the finished goods and services produced within a country's borders, is extremely important in predicting overall happiness. This is because GDP can be considered a measure of a country's economy, which when thriving leads to more jobs, trade and overall prosperity. This intuition is verified in the following graph of the relationship between the logarithm of a country's GDP and their well-being score. We can see that there is a very strong positive relationship, indicating that the higher a country's GDP is, ie. the larger the economy, the more likely a country is to have a higher happiness score. We can see that in general countries in the Sub-Saharan Africa region have a lower GDP and happiness score.
+
+```{r,happiness-gdp, warning=FALSE,echo=FALSE,fig.width=8, fig.height=4}
+happiness_data %>%
+  group_by(Region) %>%
+  ggplot(aes(Log.GDP,Score,color=Region)) +
+  geom_point() +
+  labs(x="Economy (GDP Per Capita)",y="Happiness Score",title="Log GDP Per Capita vs. Happiness Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+###Healthy Life Expectancy vs. Happiness
+
+Next, we can see that there is also a very strong positive relationship between healthy life expectancy and happiness. The average number of years that a person can expect to live in full health (not counting the years lived in less than full health due to disease and/or injury) is a very important indicator of overall happiness because it demonstrates a country's poverty level and medical capabilities/resources. We can see that countries in Western Europe and Eastern Asia have very high healthy life expectancies, with almost all of the countries in those regions having a HLE of above 70 years old.
+
+```{r,life-expectancy-happiness, warning=FALSE,echo=FALSE,fig.width=8, fig.height=4}
+happiness_data %>%
+  group_by(Region) %>%
+  ggplot(aes(Healthy.life.expectancy,Score,col=Region)) +
+  geom_point() +
+  labs(x="Healthy Life Expectancy",y="Happiness Score",title="Healthy Life Expectancy vs. Happiness Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+###Social Support vs. Happiness
+
+Social support, or having someone to count on in times of trouble, is another significant indicator of overall happiness. We can see in the graph below of the the relationship of the two variables that there is a strong positive relationship. This shows that the countries with people that feel they have a support system of friends and family tend to have higher well-being scores. We can see from the graph that the countries in the Western Europe region have the highest degree of social support and also some of the highest happiness scores.
+
+```{r, social-support-happiness, warning=FALSE,echo=FALSE,fig.width=8, fig.height=4}
+happiness_data %>%
+  group_by(Region) %>%
+  ggplot(aes(Social.support,Score,col=Region)) +
+  geom_point() +
+  labs(x="Social Support",y="Happiness Score",title="Social Support vs. Happiness Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+###Freedom vs. Happiness
+
+Looking at the graph below of the relationship between the freedom variable and happiness score, we can see that there is a positive relationship between the two, however it is slightly weaker. Again, countries in Western Europe tend to have the highest levels of freedom and also happiness scores. On the other hand, countries in the Middle East and North Africa, Sub-Saharan Africa and Southern Asia tend to have lower levels of freedom of life. 
+
+```{r, freedom-happiness, warning=FALSE,echo=FALSE,fig.width=8, fig.height=4}
+happiness_data %>%
+  group_by(Region) %>%
+  ggplot(aes(Freedom,Score,col=Region)) +
+  geom_point() +
+  labs(x="Freedom Level",y="Happiness Score",title="Freedom Level vs. Happiness Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+###Perceptions of Corruption vs. Happiness
+
+The graph of the perceptions of corruption, both within business and government, versus overall happiness is less clear than the previous relationships. It is apparent that countries in Central and Eastern Europe, Sub-Saharan Africa and Latin America and the Caribbean have higher levels of corruption within their politics and economy, which sometimes affects their overall happiness score report. In general, there is a negative relationship between perceptions of corruption and scores, meaning that the less corruption perceived within a country, the more common a higher happiness score is. However, there are some instances of groups of outliers such as in Sub-Saharan Africa. There is a clustering of countries which have very low levels of corruption, yet they still have low happiness scores. 
+
+```{r, corruption-happiness, warning=FALSE,echo=FALSE,fig.width=8, fig.height=4}
+happiness_data %>%
+  group_by(Region) %>%
+  ggplot(aes(as.numeric(Perceptions.of.corruption),Score,col=Region)) +
+  geom_point() +
+  labs(x="Perceptions of Corruption",y="Happiness Score",title="Perceptions of Corruption vs. Happiness Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+###Generosity vs. Happiness
+
+Finally, we can see that there isn't a very clear relationship between a country's generosity level and happiness score. Southern Asian countries do tend to have a higher level of generosity, which could potentially be due to their cultural customs. 
+
+```{r, generosity-happiness, warning=FALSE,echo=FALSE,fig.width=8, fig.height=4}
+happiness_data %>%
+  group_by(Region) %>%
+  ggplot(aes(Generosity,Score,col=Region)) +
+  geom_point() +
+  labs(x="Generosity Level",y="Happiness Score",title="Generosity vs. Happiness Score") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+\newpage
+##Modeling
+
+###Defining RMSE
+
+Now that we have a better understanding of the dataset, we can begin to build models of varying complexity and measure their success using RMSE. This section details the development of 4 different machine learning models, using various teachniques and predictors.
+
+First, we develop a baseline model using just the score averages in order to have a starting point to compare our more advanced models against. We will assess this model (and all future models) using the RMSE (root mean square error), which quantifies how far the predicted values are from the observed values in the final hold out validation set. Therefore want to minimize the RMSE value. The RMSE is defined as follows:
+
+$$RMSE = \sqrt{\frac{1}{N}\displaystyle\sum_{i} (\hat{y}_{i}-y_{i})^{2}}$$
+
+with ${y}_{i}$ as the happiness score for Country ${i}$ and $\hat{y}_{i}$ to denote our prediction.
+
+###Train & Test Sets
+
+This step creates a data partition on our world happiness data, splitting the data with 75% as a training set and 25% reserved as a final testing set. Since our dataset has 1704 observations, when we split the data both the training and test sets will have a relatively large amount of observations, resulting in less bias and variance. This validation approach will be used for all of our models except the first linear model, which uses 10-fold cross-validation to improve the accuracy slightly. Then, a RMSE function is created based on the formula listed above.    
+
+```{r,train-test, warning=FALSE}
+test_index <- createDataPartition(happiness_data$Score, times = 1, p = 0.25, list = FALSE)
+test_set <- happiness_data[test_index, ]
+train_set <- happiness_data[-test_index, ]
+
+#Replace test set NAs with column means from our training set
+col_means <- lapply(train_set[,2:11], mean, na.rm = TRUE)
+test_set <- replace_na(test_set, col_means)
+```
+
+```{r,rmse, warning=FALSE}
+#Create Root Mean Squared Error (RMSE) function
+rmse <- function(true_scores, predicted_scores){
+  sqrt(mean((true_scores - predicted_scores)^2))}
+```
+
+###Baseline Model
+
+This baseline model simply predicts a given country's score as the average score of the entire dataset. Therefore, regardless of the country or other variable values, each happiness score prediction is the same. This baseline model using the mean happiness score of the dataset is slightly better than randomly guessing, however we know from our data exploration that we can acheive a higher accuracy.    
+
+
+
+```{r, baseline-model, warning=FALSE}
+#Calculate the average happiness score of all countries in the training set
+avg_score <- mean(train_set$Score)
+
+#Calculate RMSE using the average score as the predicted value for each country 
+#and the scores from the final hold out validation set as the observed values
+rmse(test_set$Score,avg_score)
+```
+
+###Model 1: Linear Model
+
+From our exploratory analysis of the dataset, we know that there were very strong relationships with several predictor variables and a country's happiness score. Therefore we can build a linear model to reflect these relationships.
+
+Since our dataset only has 1704 observations, the standard 75%/25% split into training and testing data could be improved upon for the linear approach. This is because our test set will be relatively small and thus our measure of model performance may be weakened. Instead, we can use the method of cross-validation to build K different models that make predictions on all of our data. K-fold cross-validation splits the data into K different parts, with each model trained on K-1 different parts and tested on the remaining part. This process is repeated until each of the K subsets has served as the test set, then the K prediction errors are averaged. This step creates the data partitions on our world happiness data using 10-fold cross-validation. In general, values of K=5 or K=10 have been shown to yield test error estimates that don't have excessively high bias or variance, which is why we have selected K=10.    
+
+
+
+```{r,train-test-cv, warning=FALSE}
+#Define train control for 10 fold cross validation
+set.seed(1)
+train_control <- trainControl(method="cv", number=10)
+```
+
+```{r, linear-model, warning=FALSE}
+#Train a linear model using 10-fold cross validation 
+#and make predictions on each of the k subsets
+model1 <- train(Score~Log.GDP+Social.support+Healthy.life.expectancy+Freedom+
+               Perceptions.of.corruption+Generosity+Year+Region,
+               na.action=na.exclude,
+               data=happiness_data,
+               trControl=train_control, #Generate training and test sets, with cross validation
+               method="lm")
+#Compute the prediction error RMSE
+print(model1)
+```
+
+\newpage
+###Model 2: Decision (Regression) Tree
+
+Another machine learning technique that can be applied to our dataset is the creation of a decision tree, and in this case a regression tree since the outcome (happiness score) is continuous. To develop this regression tree we will use binary splitting to grow a large tree on the training data that creates partitions of 2 branches multiple times in a top-down algorithm, while simultaneously minimizing the Residual Sum of Squares (RSS):
+
+$$RSS = \sum_{i=1}^n (y_{i} - \hat{y}_{i})^2$$
+
+In this approach, we will apply cost complexity pruning to the tree in order to find the optimal tuning parameter $\alpha$. The function rpart uses the method of cross-validation and applies a range of cost complexity values to choose this tuning parameter by dividing the training set into k=10 different folds to estimate the test error rate. We can see from the code below that the optimal cost complexity parameter from the cross-validation that was performed was 0.01. The resulting regression tree with all the nodels/splits is also displayed below.    
+
+
+
+```{r regression-tree-model, warning=FALSE,fig.height=5, fig.width=8}
+#Fully grown regression tree
+model2 <- rpart(Score ~ Log.GDP+Social.support+Healthy.life.expectancy+Freedom+
+                Perceptions.of.corruption+Generosity+Year+Region, 
+                method = "anova",
+                data = train_set)
+#visualize the splits 
+rpart.plot(model2)
+#Get score predictions 
+predicted_scores <- predict(model2, test_set)
+#Compute the prediction error RMSE
+rmse(test_set$Score,predicted_scores)
+```
+```{r,fig.width=5, fig.height=3,warning=FALSE}
+#The most important factors in determining score (according to the features in our model)
+model2$variable.importance
+#Find the optimal cost complexity parameter that was used in the decision tree
+plotcp(model2)
+```
+
+###Model 3: Random Forest
+
+Our regression tree model performed worse than our multiple linear regression model because single regression trees tend to have higher variance and therefore poor accuracy. This is because a different training data set can significantly alter the terminal nodes and split values, resulting in completely different predictions. We can improve this accuracy significantly by using a random forest approach.
+
+Random forests enhance predictive accuracy by averaging the results accross lots of different trees. In the code below, each tree is subsequently grown to the fullest extent and 10-fold cross-validation is being used for re-sampling to ensure that the individual trees aren't the same. This results in a large reduction in RMSE from our first 2 models, indicating happiness scores are being predicted with more accuracy.    
+
+
+
+```{r, random-forest-model, warning=FALSE,fig.width=5, fig.height=3}
+#Train multiple regression trees and average their errors
+#use tuneGrid and cross validation to optimize the tuning parameter 
+model3 <- train(Score~Log.GDP+Social.support+Healthy.life.expectancy+Freedom+
+                Perceptions.of.corruption+Generosity+Year+Region, 
+                method = "rf",
+                tuneGrid = data.frame(mtry = c(3,5,7,9)),
+                trControl=train_control, #10-fold cross validation to generate different trees
+                importance=TRUE, #allows to inspect variable importance
+                data = train_set, 
+                na.action=na.exclude)
+
+#Plot the tuning parameter vs. RMSE it achieves
+plot(model3)
+#Find the opitmal tuning parameter mtry 
+#mtry is the number of variables randomly sampled as candidates at each split in the tree
+model3$bestTune
+#Final model developed
+model3$finalModel
+
+#Make predictions on the test data
+predicted_scores <- predict(model3, test_set)
+#Compute the prediction error RMSE
+rmse(test_set$Score,predicted_scores)
+```
+
+\newpage
+###Model 4: K Nearest Neighbors (KNN)
+
+Another machine learning approach that could improve the prediction of a given country's happiness score is the non-parametric k-nearest neighbors method (KNN). KNN doesn't explicitly assume any form for our function like with linear regression, which provides a more flexible alternative that can reflect the true curvature of our function.
+
+KNN is a machine learning algorithm that predicts an outcome based on the similiarity with its neighbors, using distance functions. In our case we can use the KNN algorithm to predict a given country's score based on the average score of a grouping of neighboring countries. In the code below we use 10-fold cross-validation in order to find the optimal number of neighbors to use to predict a country's overall well-being. After training the model we see that k=5 is the optimal number of neighboring observations to use to predict a country's happiness score. This results in a successful RMSE value of 0.4791718, illustrating KNN is more accurate that our first 2 models in predicting happiness, however the random forest still outperforms this technique.      
+
+
+
+```{r,knn-model, warning=FALSE}
+#First we must split up our training set to create a separate label training set
+#Isolate the dependent variable
+train_y <- train_set %>% na.exclude() %>% select(Score)
+#Remove the non-numeric factors and NA values
+train_x <- train_set %>% select(-Score,-Year,-Country,-Region) %>% na.exclude()
+
+model4 <- train(train_x, train_y$Score,
+                 method="knn", 
+                 trControl = trainControl("cv", number = 10),
+                 preProcess = c("center","scale"),
+                 tuneLength = 10)
+#Find the optimal value of the tuning parameter (how many neighbors to use)
+model4$bestTune
+#Make predictions on the test data
+predicted_scores <- predict(model4, test_set)
+#Compute the prediction error RMSE
+rmse(test_set$Score,predicted_scores)
+```
+
+\newpage
+#Results
+
+```{r performance-tables, warning=FALSE,echo=FALSE,fig.align='center'}
+#Set the number of significant figures for the RMSE
+options(pillar.sigfig = 7)
+#Create a result table
+results <- tibble(Method = "Baseline Model", RMSE = 1.11129)
+results <- results %>% 
+  add_row(Method="Linear Model", RMSE = 0.5267627) %>%
+  add_row(Method="Decision (Regression) Tree", RMSE = 0.5568067) %>% 
+  add_row(Method="Random Forest", RMSE = 0.4107367) %>% 
+  add_row(Method="K Nearest Neighbors", RMSE = 0.4791718)
+  
+results %>% knitr::kable() %>% kable_styling(position="center")
+```
+
+#Conclusion
+
+This report successfully developed 4 different machine learning algorithms to predict a country's overall happiness based on the attributes from the World Happiness Report. Using the cleaned world happiness data that included GDP, social support levels, healthy life expectancy, generosity levels, freedom levels and perceptions of corruption, we were able to successfully build a random forest algorithm with a low RMSE of 0.4107367. 
+
+The random forest model produced significantly better RMSE results than the first 2 models and the k-nearest neighbors model was the only other model that produced a comparable RMSE. The k-nearest neighbors approach produced a RMSE of 0.4791718 and runs faster than the random forest algorithm since calculating distances is much less time consuming than growing lots of full regression trees.
+
+Overall the random forest algorithm, which includes all the features in the world happiness dataset performed the best (resulted in the smallest RMSE) of all the models built.
+
+##Limitations
+
+This project was constrained by computer memory and time limitations. There are many more modeling/sampling techniques that could be applied with improved hardware that would lead to even better results.
+
+##Future Work
+
+Further exploration of ensemble methods and other machine learning solutions could potentially improve the prediction results. Other potential options for improving the RMSE include, but aren't limited to, expanding the dataset (finding data from before 2005 and/or more predictors), examining/potentially removing outliers and performing more detailed feature selection. All in all, this project provides very strong predictions for overall happiness of countries across the world and contains interesting data that can be further explored and analyzed.
